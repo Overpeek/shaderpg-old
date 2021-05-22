@@ -3,18 +3,19 @@
 
 
 
-#[gears_bindgen(uniform)]
-struct UBO {
-	float time;
-} ubo;
-
 #[gears_bindgen(in)]
 struct VertexData {
 	vec2 pos;
 } vert_in;
 
+#[gears_bindgen(out)]
+struct Shared {
+	vec2 pos;
+} vert_out;
+
 
 
 void main() {
 	gl_Position = vec4(vert_in.pos, 0.0, 1.0);
+	vert_out.pos = (vert_in.pos + vec2(1.0, 1.0)) / 2.0;
 }

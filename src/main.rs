@@ -1,44 +1,54 @@
 use cgmath::{Vector2, Vector4};
 use gears::{
-    Buffer, Frame, FrameLoop, FrameLoopTarget, FramePerfReport, ImmediateFrameInfo, Pipeline,
-    PipelineBuilder, RenderRecordBeginInfo, RenderRecordInfo, Renderer, RendererRecord,
-    UpdateRecordInfo, VertexBuffer,
+    Buffer, EventLoopTarget, Frame, FrameLoop, FrameLoopTarget, FramePerfReport,
+    ImmediateFrameInfo, IndexBuffer, KeyboardInput, Pipeline, PipelineBuilder,
+    RenderRecordBeginInfo, RenderRecordInfo, Renderer, RendererRecord, SyncMode, UpdateLoop,
+    UpdateLoopTarget, UpdateRate, UpdateRecordInfo, VertexBuffer, VirtualKeyCode, WindowEvent,
 };
-use log::error;
+use log::*;
 use parking_lot::RwLock;
-use std::sync::Arc;
+use std::{
+    fs, mem,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant, SystemTime},
+};
 
 mod shader;
 
-const VERTICES: &[shader::VertexData; 6] = &[
-    // tri a
+const FRAMES_IN_FLIGHT: usize = 3;
+const SCALE: f32 = 1.0;
+const INDICES: &[u16; 6] = &[0, 1, 2, 0, 2, 3];
+const VERTICES: &[shader::VertexData; 4] = &[
     shader::VertexData {
-        pos: Vector2::new(-1.0, -1.0),
+        pos: Vector2::new(-SCALE, -SCALE),
     },
     shader::VertexData {
-        pos: Vector2::new(1.0, -1.0),
+        pos: Vector2::new(SCALE, -SCALE),
     },
     shader::VertexData {
-        pos: Vector2::new(1.0, 1.0),
-    },
-    // tri b
-    shader::VertexData {
-        pos: Vector2::new(-1.0, -1.0),
+        pos: Vector2::new(SCALE, SCALE),
     },
     shader::VertexData {
-        pos: Vector2::new(1.0, 1.0),
-    },
-    shader::VertexData {
-        pos: Vector2::new(-1.0, 1.0),
+        pos: Vector2::new(-SCALE, SCALE),
     },
 ];
 
 struct App {
     renderer: Renderer,
 
+    ib: IndexBuffer<u16>,
     vb: VertexBuffer<shader::VertexData>,
-    shader: Pipeline,               // active shader
-    blend_shader: Option<Pipeline>, // blending shader
+
+    shader: Pipeline, // active shader
+    discarded_shaders: Vec<Pipeline>,
+
+    main_shader_in_use: AtomicUsize,
+    last_modified: SystemTime,
+
+    dt: Instant,
 }
 
 impl App {
@@ -52,6 +62,7 @@ impl App {
                 err => panic!("Shaderc error: {:?}", err),
             });
 
+        let ib = IndexBuffer::new_with_data(&renderer, INDICES).unwrap();
         let vb = VertexBuffer::new_with_data(&renderer, VERTICES).unwrap();
         let shader = PipelineBuilder::new(&renderer)
             .with_graphics_modules(shader::VERT_SPIRV_REF, &shader_source[..])
@@ -63,42 +74,113 @@ impl App {
         let app = Self {
             renderer,
 
+            ib,
             vb,
             shader,
-            blend_shader: None,
+            discarded_shaders: Vec::new(),
+
+            main_shader_in_use: AtomicUsize::new(3),
+            last_modified: SystemTime::now(),
+
+            dt: Instant::now(),
         };
 
         Arc::new(RwLock::new(app))
+    }
+
+    fn update_shader(&mut self) {
+        match shader::read_shader("shader.glsl".into()) {
+            Ok(shader_source) => {
+                match PipelineBuilder::new(&self.renderer)
+                    .with_graphics_modules(shader::VERT_SPIRV_REF, &shader_source[..])
+                    .with_ubo::<shader::UBO>()
+                    .with_input::<shader::VertexData>()
+                    .build(false)
+                {
+                    Ok(mut discarded_shader) => {
+                        self.main_shader_in_use.store(0, Ordering::SeqCst);
+
+                        mem::swap(&mut self.shader, &mut discarded_shader);
+                        self.discarded_shaders.push(discarded_shader);
+                        self.renderer.request_rerecord();
+                    }
+                    Err(err) => println!("Shader error: {:?}", err),
+                }
+            }
+            Err(compile_error) => {
+                println!("\n\nShader compile error: {}", compile_error);
+            }
+        }
+    }
+}
+
+impl UpdateLoopTarget for App {
+    fn update(&mut self, _: &Duration) {
+        let modified = fs::metadata("shader.glsl").unwrap().modified().unwrap();
+        if modified > self.last_modified {
+            self.last_modified = modified;
+            self.update_shader();
+        }
+
+        if self.main_shader_in_use.load(Ordering::SeqCst) >= FRAMES_IN_FLIGHT {
+            self.discarded_shaders.clear();
+        }
+    }
+}
+
+impl EventLoopTarget for App {
+    fn event(&mut self, event: &WindowEvent) {
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        ..
+                    },
+                ..
+            } => self.update_shader(),
+            _ => {}
+        }
     }
 }
 
 impl RendererRecord for App {
     fn immediate(&self, imfi: &ImmediateFrameInfo) {
-        let ubo = shader::UBO { time: 0.0 };
+        let ubo = shader::UBO {
+            time: self.dt.elapsed().as_secs_f32(),
+        };
         self.shader.write_ubo(imfi, &ubo).unwrap();
     }
 
     fn update(&self, uri: &UpdateRecordInfo) -> bool {
-        unsafe { self.shader.update(uri) || self.vb.update(uri) }
+        unsafe {
+            let a = self.shader.update(uri);
+            let b = self.vb.update(uri);
+            let c = self.ib.update(uri);
+            a || b || c
+        }
     }
 
     fn begin_info(&self) -> RenderRecordBeginInfo {
         RenderRecordBeginInfo {
-            clear_color: Vector4::new(0.0, 0.0, 0.0, 1.0),
-            debug_calls: true,
+            clear_color: Vector4::new(1.0, 0.0, 0.5, 1.0),
+            debug_calls: false,
         }
     }
 
     fn record(&self, rri: &RenderRecordInfo) {
         unsafe {
+            self.main_shader_in_use.fetch_add(1, Ordering::SeqCst);
+
             self.shader.bind(rri);
-            self.vb.draw(rri);
+            self.ib.draw(rri, &self.vb);
         }
     }
 }
 
 impl FrameLoopTarget for App {
     fn frame(&self) -> FramePerfReport {
+        // self.renderer.request_rerecord();
         self.renderer.frame(self)
     }
 }
@@ -114,13 +196,24 @@ fn main() {
 
     let context = frame.default_context().unwrap();
 
-    let renderer = Renderer::new().build(context).unwrap();
+    let renderer = Renderer::new()
+        .with_sync(SyncMode::Immediate)
+        .with_frames_in_flight(FRAMES_IN_FLIGHT)
+        .build(context)
+        .unwrap();
 
     let app = App::new(renderer);
 
+    let _ = UpdateLoop::new()
+        .with_rate(UpdateRate::PerSecond(2))
+        .with_target(app.clone())
+        .build()
+        .run();
+
     FrameLoop::new()
         .with_event_loop(event_loop)
-        .with_frame_target(app)
+        .with_frame_target(app.clone())
+        .with_event_target(app)
         .build()
         .run();
 }

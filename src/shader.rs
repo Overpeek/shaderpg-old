@@ -4,11 +4,26 @@ use std::{
     path::PathBuf,
 };
 
+use gears_traits::vk;
 use shaderc::{Compiler, ShaderKind};
 
 gears_pipeline::pipeline! {
     vert: {
         path: "src/shader/vert.glsl"
+    }
+}
+
+pub struct UBO {
+    pub time: f32,
+}
+
+impl gears_traits::UBO for UBO {
+    const STAGE: vk::ShaderStageFlags = vk::ShaderStageFlags::FRAGMENT;
+}
+
+impl Default for UBO {
+    fn default() -> Self {
+        UBO { time: 0.0 }
     }
 }
 
