@@ -13,6 +13,7 @@ pub struct VertexData {
 #[derive(Uniform, Default)]
 pub struct UniformData {
     pub time: f32,
+    pub aspect: f32,
 }
 
 module! {

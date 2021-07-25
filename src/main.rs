@@ -22,6 +22,7 @@ const SCALE: f32 = 1.0;
 const INDICES: &[u16; 6] = &[0, 1, 2, 0, 2, 3];
 
 struct App {
+    frame: Frame,
     renderer: Renderer,
 
     ib: IndexBuffer<u16>,
@@ -37,7 +38,7 @@ struct App {
 }
 
 impl App {
-    fn new(renderer: Renderer) -> Arc<RwLock<Self>> {
+    fn new(frame: Frame, renderer: Renderer) -> Arc<RwLock<Self>> {
         let vertices: &[shader::VertexData; 4] = &[
             shader::VertexData {
                 pos: Vec2::new(-SCALE, -SCALE),
@@ -59,6 +60,7 @@ impl App {
         let shader = shader::Pipeline::build(&renderer).unwrap();
 
         let app = Self {
+            frame,
             renderer,
 
             ib,
@@ -127,6 +129,7 @@ impl RendererRecord for App {
     fn immediate(&self, imfi: &ImmediateFrameInfo) {
         let ubo = shader::UniformData {
             time: self.dt.elapsed().as_secs_f32(),
+            aspect: self.frame.aspect(),
         };
         self.shader.write_fragment_uniform(imfi, &ubo).unwrap();
     }
@@ -181,7 +184,7 @@ fn main() {
         .build(context)
         .unwrap();
 
-    let app = App::new(renderer);
+    let app = App::new(frame, renderer);
 
     let _ = UpdateLoop::new()
         .with_rate(UpdateRate::PerSecond(10))
