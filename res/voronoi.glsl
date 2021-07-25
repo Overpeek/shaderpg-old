@@ -41,6 +41,6 @@ void main() {
 	float dist = r.r;
 	vec2 id = r.gb;
 
-	vec3 col = vec3(rand(id), rand(id + vec2(5000)), rand(id + vec2(500))) * dist;
+	vec3 col = vec3(rand(id), rand(id + vec2(5000)), rand(id + vec2(500)));
 	color = vec4(col, 1.0);
 }
