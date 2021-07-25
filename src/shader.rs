@@ -1,42 +1,52 @@
 use std::{
     fs::File,
     io::{self, Read, Write},
-    path::PathBuf,
 };
 
-use gears_traits::vk;
-use shaderc::{Compiler, ShaderKind};
+use gears::{glam::Vec2, module, pipeline, FormatOf, Input, RGBAOutput, Uniform};
 
-gears_pipeline::pipeline! {
-    vert: {
-        path: "src/shader/vert.glsl"
-    }
+#[derive(Input, Default)]
+pub struct VertexData {
+    pub pos: Vec2,
 }
 
-pub struct UBO {
+#[derive(Uniform, Default)]
+pub struct UniformData {
     pub time: f32,
 }
 
-impl gears_traits::UBO for UBO {
-    const STAGE: vk::ShaderStageFlags = vk::ShaderStageFlags::FRAGMENT;
+module! {
+    kind = "vert",
+    path = "src/shader/vert.glsl",
+    name = "VERT"
 }
 
-impl Default for UBO {
-    fn default() -> Self {
-        UBO { time: 0.0 }
-    }
+module! {
+    kind = "frag",
+    path = "src/shader/frag.glsl",
+    name = "FRAG",
+    runtime = "reader"
 }
 
-pub const DEFAULT_FRAG_REF: &str = include_str!("shader/frag.glsl");
+pipeline! {
+    "Pipeline"
+    VertexData -> RGBAOutput
 
-fn create_shader(path: PathBuf) -> io::Result<()> {
-    let mut file = File::create(path)?;
+    mod "VERT" as "vert"
+    mod "FRAG" as "frag" where { in UniformData }
+}
+
+pub const DEFAULT_FRAG_REF: &'static str = include_str!("shader/frag.glsl");
+pub const PATH: &'static str = "shader.glsl";
+
+fn create_shader() -> io::Result<()> {
+    let mut file = File::create(PATH)?;
     file.write_all(DEFAULT_FRAG_REF.as_bytes())?;
     Ok(())
 }
 
-fn try_read_shader(path: PathBuf) -> io::Result<String> {
-    let mut file = File::open(path)?;
+fn try_read_shader() -> io::Result<String> {
+    let mut file = File::open(PATH)?;
 
     let mut buf = String::new();
     file.read_to_string(&mut buf)?;
@@ -44,25 +54,12 @@ fn try_read_shader(path: PathBuf) -> io::Result<String> {
     Ok(buf)
 }
 
-pub fn read_shader(path: PathBuf) -> Result<Vec<u8>, shaderc::Error> {
-    let mut shaderc = Compiler::new().unwrap();
-
-    let shader_source = try_read_shader(path.clone());
-
-    let shader_source = if let Ok(s) = shader_source.as_ref() {
-        s.as_ref()
-    } else {
-        create_shader(path.clone()).unwrap();
-        DEFAULT_FRAG_REF
-    };
-
-    shaderc
-        .compile_into_spirv(
-            shader_source,
-            ShaderKind::Fragment,
-            path.file_name().unwrap().to_str().unwrap(),
-            "main",
-            None,
-        )
-        .map(|artifact| artifact.as_binary_u8().into())
+pub fn reader(_: &'static str) -> String {
+    match try_read_shader() {
+        Ok(s) => s,
+        Err(_) => {
+            create_shader().unwrap();
+            try_read_shader().unwrap()
+        }
+    }
 }

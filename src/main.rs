@@ -1,11 +1,10 @@
-use cgmath::{Vector2, Vector4};
 use gears::{
+    glam::{Vec2, Vec4},
     Buffer, EventLoopTarget, Frame, FrameLoop, FrameLoopTarget, FramePerfReport,
-    ImmediateFrameInfo, IndexBuffer, KeyboardInput, Pipeline, PipelineBuilder,
-    RenderRecordBeginInfo, RenderRecordInfo, Renderer, RendererRecord, SyncMode, UpdateLoop,
-    UpdateLoopTarget, UpdateRate, UpdateRecordInfo, VertexBuffer, VirtualKeyCode, WindowEvent,
+    ImmediateFrameInfo, IndexBuffer, KeyboardInput, RenderRecordBeginInfo, RenderRecordInfo,
+    Renderer, RendererRecord, SyncMode, UpdateLoop, UpdateLoopTarget, UpdateRate, UpdateRecordInfo,
+    VertexBuffer, VirtualKeyCode, WindowEvent,
 };
-use log::*;
 use parking_lot::RwLock;
 use std::{
     fs, mem,
@@ -21,20 +20,6 @@ mod shader;
 const FRAMES_IN_FLIGHT: usize = 3;
 const SCALE: f32 = 1.0;
 const INDICES: &[u16; 6] = &[0, 1, 2, 0, 2, 3];
-const VERTICES: &[shader::VertexData; 4] = &[
-    shader::VertexData {
-        pos: Vector2::new(-SCALE, -SCALE),
-    },
-    shader::VertexData {
-        pos: Vector2::new(SCALE, -SCALE),
-    },
-    shader::VertexData {
-        pos: Vector2::new(SCALE, SCALE),
-    },
-    shader::VertexData {
-        pos: Vector2::new(-SCALE, SCALE),
-    },
-];
 
 struct App {
     renderer: Renderer,
@@ -42,8 +27,8 @@ struct App {
     ib: IndexBuffer<u16>,
     vb: VertexBuffer<shader::VertexData>,
 
-    shader: Pipeline, // active shader
-    discarded_shaders: Vec<Pipeline>,
+    shader: shader::Pipeline, // active shader
+    discarded_shaders: Vec<shader::Pipeline>,
 
     main_shader_in_use: AtomicUsize,
     last_modified: SystemTime,
@@ -53,23 +38,25 @@ struct App {
 
 impl App {
     fn new(renderer: Renderer) -> Arc<RwLock<Self>> {
-        let shader_source =
-            shader::read_shader("shader.glsl".into()).unwrap_or_else(|err| match err {
-                shaderc::Error::CompilationError(count, message) => {
-                    error!("Compilation errors: {}\nMessage: {}", count, message);
-                    panic!()
-                }
-                err => panic!("Shaderc error: {:?}", err),
-            });
+        let vertices: &[shader::VertexData; 4] = &[
+            shader::VertexData {
+                pos: Vec2::new(-SCALE, -SCALE),
+            },
+            shader::VertexData {
+                pos: Vec2::new(SCALE, -SCALE),
+            },
+            shader::VertexData {
+                pos: Vec2::new(SCALE, SCALE),
+            },
+            shader::VertexData {
+                pos: Vec2::new(-SCALE, SCALE),
+            },
+        ];
 
         let ib = IndexBuffer::new_with_data(&renderer, INDICES).unwrap();
-        let vb = VertexBuffer::new_with_data(&renderer, VERTICES).unwrap();
-        let shader = PipelineBuilder::new(&renderer)
-            .with_graphics_modules(shader::VERT_SPIRV_REF, &shader_source[..])
-            .with_ubo::<shader::UBO>()
-            .with_input::<shader::VertexData>()
-            .build(false)
-            .unwrap();
+        let vb = VertexBuffer::new_with_data(&renderer, vertices).unwrap();
+
+        let shader = shader::Pipeline::build(&renderer).unwrap();
 
         let app = Self {
             renderer,
@@ -89,34 +76,26 @@ impl App {
     }
 
     fn update_shader(&mut self) {
-        match shader::read_shader("shader.glsl".into()) {
-            Ok(shader_source) => {
-                match PipelineBuilder::new(&self.renderer)
-                    .with_graphics_modules(shader::VERT_SPIRV_REF, &shader_source[..])
-                    .with_ubo::<shader::UBO>()
-                    .with_input::<shader::VertexData>()
-                    .build(false)
-                {
-                    Ok(mut discarded_shader) => {
-                        self.main_shader_in_use.store(0, Ordering::SeqCst);
+        match shader::Pipeline::build(&self.renderer) {
+            Ok(mut discarded_shader) => {
+                self.main_shader_in_use.store(0, Ordering::SeqCst);
 
-                        mem::swap(&mut self.shader, &mut discarded_shader);
-                        self.discarded_shaders.push(discarded_shader);
-                        self.renderer.request_rerecord();
-                    }
-                    Err(err) => println!("Shader error: {:?}", err),
-                }
+                mem::swap(&mut self.shader, &mut discarded_shader);
+                self.discarded_shaders.push(discarded_shader);
+                self.renderer.request_rerecord();
+
+                log::info!("Shader reloaded");
             }
-            Err(compile_error) => {
-                println!("\n\nShader compile error: {}", compile_error);
-            }
+            Err(compile_error) => log::error!("Shader build failed: {}", compile_error),
         }
     }
 }
 
 impl UpdateLoopTarget for App {
     fn update(&mut self, _: &Duration) {
-        let modified = fs::metadata("shader.glsl").unwrap().modified().unwrap();
+        let metadata = fs::metadata("shader.glsl").unwrap();
+
+        let modified = metadata.modified().unwrap();
         if modified > self.last_modified {
             self.last_modified = modified;
             self.update_shader();
@@ -146,10 +125,10 @@ impl EventLoopTarget for App {
 
 impl RendererRecord for App {
     fn immediate(&self, imfi: &ImmediateFrameInfo) {
-        let ubo = shader::UBO {
+        let ubo = shader::UniformData {
             time: self.dt.elapsed().as_secs_f32(),
         };
-        self.shader.write_ubo(imfi, &ubo).unwrap();
+        self.shader.write_fragment_uniform(imfi, &ubo).unwrap();
     }
 
     fn update(&self, uri: &UpdateRecordInfo) -> bool {
@@ -163,7 +142,7 @@ impl RendererRecord for App {
 
     fn begin_info(&self) -> RenderRecordBeginInfo {
         RenderRecordBeginInfo {
-            clear_color: Vector4::new(1.0, 0.0, 0.5, 1.0),
+            clear_color: Vec4::new(1.0, 0.0, 0.5, 1.0),
             debug_calls: false,
         }
     }
@@ -205,7 +184,7 @@ fn main() {
     let app = App::new(renderer);
 
     let _ = UpdateLoop::new()
-        .with_rate(UpdateRate::PerSecond(2))
+        .with_rate(UpdateRate::PerSecond(10))
         .with_target(app.clone())
         .build()
         .run();

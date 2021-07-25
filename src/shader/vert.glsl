@@ -1,21 +1,14 @@
 #version 420
-#extension GL_ARB_separate_shader_objects : enable
 
+layout (location = 0) in
+vec2 in_pos;
 
-
-#[gears_bindgen(in)]
-struct VertexData {
-	vec2 pos;
-} vert_in;
-
-#[gears_bindgen(out)]
-struct Shared {
-	vec2 pos;
-} vert_out;
+layout (location = 0) out
+vec2 out_pos;
 
 
 
 void main() {
-	gl_Position = vec4(vert_in.pos, 0.0, 1.0);
-	vert_out.pos = (vert_in.pos + vec2(1.0, 1.0)) / 2.0;
+	gl_Position = vec4(in_pos, 0.0, 1.0);
+	out_pos = (in_pos + vec2(1.0, 1.0)) / 2.0;
 }

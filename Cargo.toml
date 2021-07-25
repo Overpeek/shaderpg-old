@@ -8,10 +8,7 @@ edition = "2018"
 
 [dependencies]
 log = "~0.4"
-cgmath = { version = "~0.18", features = ["swizzle"] }
-env_logger = "~0.8"
+env_logger = "~0.9"
 parking_lot = "~0.11"
-shaderc = "~0.7"
-gears = { git = "https://github.com/Overpeek/gears", branch = "main", features = [ "short_namespaces" ] }
-gears-traits = { git = "https://github.com/Overpeek/gears", branch = "main" }
-gears-pipeline = { git = "https://github.com/Overpeek/gears", branch = "main" }
+gears = { path = "../gears/gears", features = [ "runtime_shaders" ] }
+# gears = { path = "https://github.com/Overpeek/gears", features = [ "runtime_shaders" ] }
