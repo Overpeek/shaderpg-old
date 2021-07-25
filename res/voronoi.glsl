@@ -7,6 +7,7 @@ layout(location = 0) in vec2 position;
 
 layout(binding = 0) uniform UBO {
 	float time;
+	float aspect;
 } ubo;
 
 vec3 voronoi(vec2 uv) {
@@ -36,7 +37,7 @@ vec3 voronoi(vec2 uv) {
 }
 
 void main() {
-	vec2 uv = position * 5.0;
+	vec2 uv = position * vec2(5.0 * ubo.aspect, 5.0);
 	vec3 r = voronoi(uv);
 	float dist = r.r;
 	vec2 id = r.gb;
