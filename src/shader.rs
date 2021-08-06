@@ -5,12 +5,12 @@ use std::{
 
 use gears::{glam::Vec2, module, pipeline, FormatOf, Input, RGBAOutput, Uniform};
 
-#[derive(Input, Default)]
+#[derive(Input, PartialEq, Default)]
 pub struct VertexData {
     pub pos: Vec2,
 }
 
-#[derive(Uniform, Default)]
+#[derive(Uniform, PartialEq, Default)]
 pub struct UniformData {
     pub time: f32,
     pub aspect: f32,
@@ -34,7 +34,7 @@ pipeline! {
     VertexData -> RGBAOutput
 
     mod "VERT" as "vert"
-    mod "FRAG" as "frag" where { in UniformData }
+    mod "FRAG" as "frag" where { in UniformData as 0 }
 }
 
 pub const DEFAULT_FRAG_REF: &'static str = include_str!("shader/frag.glsl");
