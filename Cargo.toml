@@ -10,5 +10,5 @@ edition = "2018"
 log = "~0.4"
 env_logger = "~0.9"
 parking_lot = "~0.11"
-gears = { path = "../gears/gears", features = [ "runtime_shaders" ] }
-# gears = { path = "https://github.com/Overpeek/gears", features = [ "runtime_shaders" ] }
+# gears = { path = "../gears/gears", features = [ "runtime_shaders" ] }
+gears = { git = "https://github.com/Overpeek/gears", features = [ "runtime_shaders" ] }
